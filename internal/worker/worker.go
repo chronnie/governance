@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"log"
 
 	eventqueue "github.com/chronnie/go-event-queue"
 	"github.com/chronnie/governance/events"
@@ -38,8 +37,6 @@ func (w *EventWorker) RegisterHandlers(queue eventqueue.IEventQueue) {
 	queue.RegisterHandler(string(events.EventUnregister), eventqueue.EventHandlerFunc(w.handleUnregister))
 	queue.RegisterHandler(string(events.EventHealthCheck), eventqueue.EventHandlerFunc(w.handleHealthCheck))
 	queue.RegisterHandler(string(events.EventReconcile), eventqueue.EventHandlerFunc(w.handleReconcile))
-
-	log.Println("[EventWorker] All event handlers registered")
 }
 
 // handleRegister processes service registration
@@ -47,11 +44,8 @@ func (w *EventWorker) handleRegister(ctx context.Context, event eventqueue.IEven
 	eventData := events.GetEventData(ctx)
 	registerEvent, ok := eventData.(*events.RegisterEvent)
 	if !ok {
-		log.Printf("[EventWorker] Invalid event data type for RegisterEvent")
 		return nil
 	}
-	log.Printf("[EventWorker] Processing RegisterEvent: service=%s, pod=%s",
-		registerEvent.Registration.ServiceName, registerEvent.Registration.PodName)
 
 	// Register service in registry
 	serviceInfo := w.registry.Register(registerEvent.Registration)
@@ -70,9 +64,6 @@ func (w *EventWorker) handleRegister(ctx context.Context, event eventqueue.IEven
 	subscribers := w.registry.GetSubscriberServices(serviceInfo.ServiceName)
 	w.notifier.NotifySubscribers(subscribers, payload)
 
-	log.Printf("[EventWorker] RegisterEvent completed: service=%s, pod=%s, subscribers=%d",
-		serviceInfo.ServiceName, serviceInfo.PodName, len(subscribers))
-
 	return nil
 }
 
@@ -81,18 +72,12 @@ func (w *EventWorker) handleUnregister(ctx context.Context, event eventqueue.IEv
 	eventData := events.GetEventData(ctx)
 	unregisterEvent, ok := eventData.(*events.UnregisterEvent)
 	if !ok {
-		log.Printf("[EventWorker] Invalid event data type for UnregisterEvent")
 		return nil
 	}
-
-	log.Printf("[EventWorker] Processing UnregisterEvent: service=%s, pod=%s",
-		unregisterEvent.ServiceName, unregisterEvent.PodName)
 
 	// Unregister service from registry
 	serviceInfo := w.registry.Unregister(unregisterEvent.ServiceName, unregisterEvent.PodName)
 	if serviceInfo == nil {
-		log.Printf("[EventWorker] UnregisterEvent failed: service not found (service=%s, pod=%s)",
-			unregisterEvent.ServiceName, unregisterEvent.PodName)
 		return nil
 	}
 
@@ -110,9 +95,6 @@ func (w *EventWorker) handleUnregister(ctx context.Context, event eventqueue.IEv
 	subscribers := w.registry.GetSubscriberServices(unregisterEvent.ServiceName)
 	w.notifier.NotifySubscribers(subscribers, payload)
 
-	log.Printf("[EventWorker] UnregisterEvent completed: service=%s, pod=%s, remaining_pods=%d, subscribers=%d",
-		unregisterEvent.ServiceName, unregisterEvent.PodName, len(servicePods), len(subscribers))
-
 	return nil
 }
 
@@ -121,16 +103,12 @@ func (w *EventWorker) handleHealthCheck(ctx context.Context, event eventqueue.IE
 	eventData := events.GetEventData(ctx)
 	healthCheckEvent, ok := eventData.(*events.HealthCheckEvent)
 	if !ok {
-		log.Printf("[EventWorker] Invalid event data type for HealthCheckEvent")
 		return nil
 	}
-
-	log.Printf("[EventWorker] Processing HealthCheckEvent: key=%s", healthCheckEvent.ServiceKey)
 
 	// Get service from registry
 	serviceInfo, exists := w.registry.Get(healthCheckEvent.ServiceKey)
 	if !exists {
-		log.Printf("[EventWorker] HealthCheckEvent skipped: service not found (key=%s)", healthCheckEvent.ServiceKey)
 		return nil
 	}
 
@@ -140,14 +118,8 @@ func (w *EventWorker) handleHealthCheck(ctx context.Context, event eventqueue.IE
 	// Update health status in registry
 	statusChanged := w.registry.UpdateHealthStatus(healthCheckEvent.ServiceKey, newStatus)
 
-	log.Printf("[EventWorker] HealthCheckEvent completed: key=%s, status=%s, changed=%v",
-		healthCheckEvent.ServiceKey, newStatus, statusChanged)
-
 	// If status changed, notify subscribers
 	if statusChanged {
-		log.Printf("[EventWorker] Health status changed for %s: %s -> %s",
-			healthCheckEvent.ServiceKey, serviceInfo.Status, newStatus)
-
 		// Get all pods of this service
 		servicePods := w.registry.GetByServiceName(serviceInfo.ServiceName)
 
@@ -161,9 +133,6 @@ func (w *EventWorker) handleHealthCheck(ctx context.Context, event eventqueue.IE
 		// Notify all subscribers
 		subscribers := w.registry.GetSubscriberServices(serviceInfo.ServiceName)
 		w.notifier.NotifySubscribers(subscribers, payload)
-
-		log.Printf("[EventWorker] Health status change notification sent: service=%s, subscribers=%d",
-			serviceInfo.ServiceName, len(subscribers))
 	}
 
 	return nil
@@ -171,8 +140,6 @@ func (w *EventWorker) handleHealthCheck(ctx context.Context, event eventqueue.IE
 
 // handleReconcile processes reconcile event (notify all subscribers with current state)
 func (w *EventWorker) handleReconcile(ctx context.Context, event eventqueue.IEvent) error {
-	log.Println("[EventWorker] Processing ReconcileEvent: notifying all subscribers")
-
 	// Get all services
 	allServices := w.registry.GetAllServices()
 
@@ -183,7 +150,6 @@ func (w *EventWorker) handleReconcile(ctx context.Context, event eventqueue.IEve
 	}
 
 	// For each service group, notify all subscribers
-	totalNotifications := 0
 	for serviceName, pods := range serviceGroups {
 		// Build notification payload
 		payload := notifier.BuildNotificationPayload(
@@ -196,14 +162,8 @@ func (w *EventWorker) handleReconcile(ctx context.Context, event eventqueue.IEve
 		subscribers := w.registry.GetSubscriberServices(serviceName)
 		if len(subscribers) > 0 {
 			w.notifier.NotifySubscribers(subscribers, payload)
-			totalNotifications += len(subscribers)
-			log.Printf("[EventWorker] Reconcile notification sent: service=%s, pods=%d, subscribers=%d",
-				serviceName, len(pods), len(subscribers))
 		}
 	}
-
-	log.Printf("[EventWorker] ReconcileEvent completed: service_groups=%d, total_notifications=%d",
-		len(serviceGroups), totalNotifications)
 
 	return nil
 }
