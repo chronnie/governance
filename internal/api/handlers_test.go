@@ -12,10 +12,12 @@ import (
 	eventqueue "github.com/chronnie/go-event-queue"
 	"github.com/chronnie/governance/internal/registry"
 	"github.com/chronnie/governance/models"
+	"github.com/chronnie/governance/storage"
 )
 
 func setupTestHandler() (*Handler, *registry.Registry, eventqueue.IEventQueue) {
-	reg := registry.NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := registry.NewRegistry(dualStore)
 	queueConfig := eventqueue.EventQueueConfig{
 		BufferSize:     100,
 		ProcessingMode: eventqueue.Sequential,

@@ -14,6 +14,7 @@ import (
 	"github.com/chronnie/governance/internal/scheduler"
 	"github.com/chronnie/governance/internal/worker"
 	"github.com/chronnie/governance/models"
+	"github.com/chronnie/governance/storage"
 )
 
 // Manager is the main governance manager component
@@ -21,6 +22,7 @@ type Manager struct {
 	config *models.ManagerConfig
 
 	// Core components
+	dualStore     *storage.DualStore // Always uses in-memory cache + optional database
 	registry      *registry.Registry
 	eventQueue    eventqueue.IEventQueue
 	notifier      *notifier.Notifier
@@ -40,14 +42,24 @@ type Manager struct {
 	stopChan chan struct{}
 }
 
-// NewManager creates a new governance manager
+// NewManager creates a new governance manager with in-memory cache only (no database persistence)
 func NewManager(config *models.ManagerConfig) *Manager {
+	return NewManagerWithDatabase(config, nil)
+}
+
+// NewManagerWithDatabase creates a new governance manager with optional database persistence.
+// The manager always uses in-memory cache for performance.
+// If db is not nil, all changes are also persisted to the database asynchronously.
+func NewManagerWithDatabase(config *models.ManagerConfig, db storage.DatabaseStore) *Manager {
 	if config == nil {
 		config = models.DefaultConfig()
 	}
 
-	// Create registry
-	reg := registry.NewRegistry()
+	// Create dual-layer storage (always has cache, database is optional)
+	dualStore := storage.NewDualStore(db)
+
+	// Create registry with dual store
+	reg := registry.NewRegistry(dualStore)
 
 	// Create event queue with Sequential mode for FIFO processing
 	queueConfig := eventqueue.EventQueueConfig{
@@ -63,7 +75,7 @@ func NewManager(config *models.ManagerConfig) *Manager {
 	healthCheck := notifier.NewHealthChecker(config.HealthCheckTimeout, config.HealthCheckRetry)
 
 	// Create event worker and register handlers
-	eventWorker := worker.NewEventWorker(reg, notif, healthCheck)
+	eventWorker := worker.NewEventWorker(reg, notif, healthCheck, dualStore)
 	eventWorker.RegisterHandlers(eventQueue)
 
 	// Create schedulers
@@ -91,6 +103,7 @@ func NewManager(config *models.ManagerConfig) *Manager {
 
 	return &Manager{
 		config:               config,
+		dualStore:            dualStore,
 		registry:             reg,
 		eventQueue:           eventQueue,
 		notifier:             notif,
@@ -157,6 +170,11 @@ func (m *Manager) Stop() error {
 	}
 	m.queueCancel()
 
+	// Close storage connection (database if enabled)
+	if err := m.dualStore.Close(); err != nil {
+		log.Printf("[Manager] Storage close error: %v", err)
+	}
+
 	// Close stop channel
 	close(m.stopChan)
 
@@ -177,4 +195,21 @@ func (m *Manager) GetRegistry() *registry.Registry {
 // GetConfig returns the manager configuration
 func (m *Manager) GetConfig() *models.ManagerConfig {
 	return m.config
+}
+
+// GetServicePods returns all pods for a given service group
+func (m *Manager) GetServicePods(serviceName string) []*models.ServiceInfo {
+	return m.registry.GetByServiceName(serviceName)
+}
+
+// GetAllServicePods returns a map of service names to their pods
+func (m *Manager) GetAllServicePods() map[string][]*models.ServiceInfo {
+	allServices := m.registry.GetAllServices()
+	result := make(map[string][]*models.ServiceInfo)
+
+	for _, service := range allServices {
+		result[service.ServiceName] = append(result[service.ServiceName], service)
+	}
+
+	return result
 }

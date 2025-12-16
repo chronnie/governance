@@ -5,23 +5,23 @@ import (
 	"time"
 
 	"github.com/chronnie/governance/models"
+	"github.com/chronnie/governance/storage"
 )
 
 func TestNewRegistry(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 	if reg == nil {
 		t.Fatal("NewRegistry returned nil")
 	}
-	if reg.services == nil {
-		t.Error("services map not initialized")
-	}
-	if reg.subscriptions == nil {
-		t.Error("subscriptions map not initialized")
+	if reg.store == nil {
+		t.Error("store not initialized")
 	}
 }
 
 func TestRegister(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	registration := &models.ServiceRegistration{
 		ServiceName: "test-service",
@@ -68,7 +68,8 @@ func TestRegister(t *testing.T) {
 }
 
 func TestRegisterUpdate(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// First registration
 	reg1 := &models.ServiceRegistration{
@@ -111,7 +112,8 @@ func TestRegisterUpdate(t *testing.T) {
 }
 
 func TestUnregister(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// Register service
 	registration := &models.ServiceRegistration{
@@ -148,7 +150,8 @@ func TestUnregister(t *testing.T) {
 }
 
 func TestUnregisterNonExistent(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	serviceInfo := reg.Unregister("non-existent", "pod-1")
 	if serviceInfo != nil {
@@ -157,7 +160,8 @@ func TestUnregisterNonExistent(t *testing.T) {
 }
 
 func TestGetByServiceName(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// Register multiple pods of same service
 	for i := 1; i <= 3; i++ {
@@ -180,7 +184,8 @@ func TestGetByServiceName(t *testing.T) {
 }
 
 func TestGetAllServices(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// Register multiple services
 	for i := 1; i <= 5; i++ {
@@ -202,7 +207,8 @@ func TestGetAllServices(t *testing.T) {
 }
 
 func TestUpdateHealthStatus(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// Register service
 	registration := &models.ServiceRegistration{
@@ -242,7 +248,8 @@ func TestUpdateHealthStatus(t *testing.T) {
 }
 
 func TestUpdateHealthStatusNonExistent(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	changed := reg.UpdateHealthStatus("non-existent:pod-1", models.StatusHealthy)
 	if changed {
@@ -251,7 +258,8 @@ func TestUpdateHealthStatusNonExistent(t *testing.T) {
 }
 
 func TestGetSubscriberServices(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// Register subscribers
 	for i := 1; i <= 3; i++ {
@@ -273,7 +281,8 @@ func TestGetSubscriberServices(t *testing.T) {
 }
 
 func TestMultipleSubscriptions(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	// Register service with multiple subscriptions
 	registration := &models.ServiceRegistration{
@@ -313,7 +322,8 @@ func TestServiceInfoGetKey(t *testing.T) {
 }
 
 func TestRegisteredAtTimestamp(t *testing.T) {
-	reg := NewRegistry()
+	dualStore := storage.NewDualStore(nil)
+	reg := NewRegistry(dualStore)
 
 	before := time.Now()
 	registration := &models.ServiceRegistration{

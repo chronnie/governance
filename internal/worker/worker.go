@@ -8,6 +8,7 @@ import (
 	"github.com/chronnie/governance/internal/notifier"
 	"github.com/chronnie/governance/internal/registry"
 	"github.com/chronnie/governance/models"
+	"github.com/chronnie/governance/storage"
 )
 
 // EventWorker processes events from the queue using handlers
@@ -15,6 +16,7 @@ type EventWorker struct {
 	registry      *registry.Registry
 	notifier      *notifier.Notifier
 	healthChecker *notifier.HealthChecker
+	dualStore     *storage.DualStore // For database sync during reconciliation
 }
 
 // NewEventWorker creates a new event worker
@@ -22,11 +24,13 @@ func NewEventWorker(
 	reg *registry.Registry,
 	notif *notifier.Notifier,
 	healthCheck *notifier.HealthChecker,
+	dualStore *storage.DualStore,
 ) *EventWorker {
 	return &EventWorker{
 		registry:      reg,
 		notifier:      notif,
 		healthChecker: healthCheck,
+		dualStore:     dualStore,
 	}
 }
 
@@ -138,9 +142,15 @@ func (w *EventWorker) handleHealthCheck(ctx context.Context, event eventqueue.IE
 	return nil
 }
 
-// handleReconcile processes reconcile event (notify all subscribers with current state)
+// handleReconcile processes reconcile event (notify all subscribers with current state + sync database)
 func (w *EventWorker) handleReconcile(ctx context.Context, event eventqueue.IEvent) error {
-	// Get all services
+	// Sync from database to cache (if database is enabled)
+	// This ensures cache has the latest data from database
+	if w.dualStore.GetDatabase() != nil {
+		w.dualStore.SyncFromDatabase(ctx)
+	}
+
+	// Get all services from cache
 	allServices := w.registry.GetAllServices()
 
 	// Group services by service name
