@@ -12,6 +12,11 @@ import (
 )
 
 func main() {
+	// Zap logger can be enabled by setting environment variables:
+	// export GOVERNANCE_LOG_ENABLED=true
+	// export GOVERNANCE_LOG_LEVEL=debug  # or info, warn, error
+	// export GOVERNANCE_LOG_FORMAT=json  # or console (default)
+
 	log.Println("Starting governance manager example...")
 
 	// Create manager configuration

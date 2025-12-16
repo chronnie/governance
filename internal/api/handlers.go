@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/chronnie/governance/events"
 	"github.com/chronnie/governance/internal/registry"
 	"github.com/chronnie/governance/models"
+	"github.com/chronnie/governance/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // Handler handles HTTP requests for the governance manager
@@ -28,7 +29,15 @@ func NewHandler(reg *registry.Registry, eventQueue eventqueue.IEventQueue) *Hand
 
 // RegisterHandler handles POST /register requests
 func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Info("API: Received register request",
+		zap.String("method", r.Method),
+		zap.String("remote_addr", r.RemoteAddr),
+	)
+
 	if r.Method != http.MethodPost {
+		logger.Warn("API: Invalid method for register endpoint",
+			zap.String("method", r.Method),
+		)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -36,19 +45,36 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse request body
 	var registration models.ServiceRegistration
 	if err := json.NewDecoder(r.Body).Decode(&registration); err != nil {
-		log.Printf("[API] Failed to decode registration request: %v", err)
+		logger.Error("API: Failed to decode registration request",
+			zap.Error(err),
+			zap.String("remote_addr", r.RemoteAddr),
+		)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
+	logger.Debug("API: Parsed registration request",
+		zap.String("service_name", registration.ServiceName),
+		zap.String("pod_name", registration.PodName),
+		zap.Int("providers_count", len(registration.Providers)),
+		zap.Int("subscriptions_count", len(registration.Subscriptions)),
+	)
+
 	// Validate registration
 	if err := h.validateRegistration(&registration); err != nil {
-		log.Printf("[API] Invalid registration: %v", err)
+		logger.Warn("API: Invalid registration request",
+			zap.String("service_name", registration.ServiceName),
+			zap.String("pod_name", registration.PodName),
+			zap.Error(err),
+		)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[API] Received registration: service=%s, pod=%s", registration.ServiceName, registration.PodName)
+	logger.Info("API: Registration validated successfully",
+		zap.String("service_name", registration.ServiceName),
+		zap.String("pod_name", registration.PodName),
+	)
 
 	// Create context with event data
 	ctx := events.NewRegisterContext(&registration)
@@ -57,10 +83,19 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	event := eventqueue.NewEvent(string(events.EventRegister), ctx, eventqueue.WithTimeout(5*time.Second))
 
 	if err := h.eventQueue.Enqueue(event); err != nil {
-		log.Printf("[API] Failed to enqueue register event: %v", err)
+		logger.Error("API: Failed to enqueue register event",
+			zap.String("service_name", registration.ServiceName),
+			zap.String("pod_name", registration.PodName),
+			zap.Error(err),
+		)
 		http.Error(w, "Failed to process registration", http.StatusInternalServerError)
 		return
 	}
+
+	logger.Info("API: Register event enqueued successfully",
+		zap.String("service_name", registration.ServiceName),
+		zap.String("pod_name", registration.PodName),
+	)
 
 	// Return success response
 	w.Header().Set("Content-Type", "application/json")
@@ -70,12 +105,23 @@ func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		"message": "Registration event queued successfully",
 	})
 
-	log.Printf("[API] Registration accepted: service=%s, pod=%s", registration.ServiceName, registration.PodName)
+	logger.Debug("API: Sent success response for registration",
+		zap.String("service_name", registration.ServiceName),
+		zap.String("pod_name", registration.PodName),
+	)
 }
 
 // UnregisterHandler handles DELETE /unregister requests
 func (h *Handler) UnregisterHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Info("API: Received unregister request",
+		zap.String("method", r.Method),
+		zap.String("remote_addr", r.RemoteAddr),
+	)
+
 	if r.Method != http.MethodDelete {
+		logger.Warn("API: Invalid method for unregister endpoint",
+			zap.String("method", r.Method),
+		)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -85,11 +131,18 @@ func (h *Handler) UnregisterHandler(w http.ResponseWriter, r *http.Request) {
 	podName := r.URL.Query().Get("pod_name")
 
 	if serviceName == "" || podName == "" {
+		logger.Warn("API: Missing required query parameters",
+			zap.String("service_name", serviceName),
+			zap.String("pod_name", podName),
+		)
 		http.Error(w, "Missing service_name or pod_name query parameters", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[API] Received unregister request: service=%s, pod=%s", serviceName, podName)
+	logger.Info("API: Unregister request validated",
+		zap.String("service_name", serviceName),
+		zap.String("pod_name", podName),
+	)
 
 	// Create context with event data
 	ctx := events.NewUnregisterContext(serviceName, podName)
@@ -98,10 +151,19 @@ func (h *Handler) UnregisterHandler(w http.ResponseWriter, r *http.Request) {
 	event := eventqueue.NewEvent(string(events.EventUnregister), ctx, eventqueue.WithTimeout(5*time.Second))
 
 	if err := h.eventQueue.Enqueue(event); err != nil {
-		log.Printf("[API] Failed to enqueue unregister event: %v", err)
+		logger.Error("API: Failed to enqueue unregister event",
+			zap.String("service_name", serviceName),
+			zap.String("pod_name", podName),
+			zap.Error(err),
+		)
 		http.Error(w, "Failed to process unregistration", http.StatusInternalServerError)
 		return
 	}
+
+	logger.Info("API: Unregister event enqueued successfully",
+		zap.String("service_name", serviceName),
+		zap.String("pod_name", podName),
+	)
 
 	// Return success response
 	w.Header().Set("Content-Type", "application/json")
@@ -111,27 +173,50 @@ func (h *Handler) UnregisterHandler(w http.ResponseWriter, r *http.Request) {
 		"message": "Unregistration event queued successfully",
 	})
 
-	log.Printf("[API] Unregistration accepted: service=%s, pod=%s", serviceName, podName)
+	logger.Debug("API: Sent success response for unregistration",
+		zap.String("service_name", serviceName),
+		zap.String("pod_name", podName),
+	)
 }
 
 // ServicesHandler handles GET /services requests (for debugging)
 func (h *Handler) ServicesHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Debug("API: Received services query request",
+		zap.String("method", r.Method),
+		zap.String("remote_addr", r.RemoteAddr),
+	)
+
 	if r.Method != http.MethodGet {
+		logger.Warn("API: Invalid method for services endpoint",
+			zap.String("method", r.Method),
+		)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	services := h.registry.GetAllServices()
 
+	logger.Info("API: Retrieved all services",
+		zap.Int("service_count", len(services)),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"count":    len(services),
 		"services": services,
 	})
+
+	logger.Debug("API: Sent services response",
+		zap.Int("service_count", len(services)),
+	)
 }
 
 // HealthHandler handles GET /health requests
 func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	logger.Debug("API: Received health check request",
+		zap.String("remote_addr", r.RemoteAddr),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "healthy",

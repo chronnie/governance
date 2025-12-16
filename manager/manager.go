@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -14,7 +13,9 @@ import (
 	"github.com/chronnie/governance/internal/scheduler"
 	"github.com/chronnie/governance/internal/worker"
 	"github.com/chronnie/governance/models"
+	"github.com/chronnie/governance/pkg/logger"
 	"github.com/chronnie/governance/storage"
+	"go.uber.org/zap"
 )
 
 // Manager is the main governance manager component
@@ -120,12 +121,12 @@ func NewManagerWithDatabase(config *models.ManagerConfig, db storage.DatabaseSto
 
 // Start starts the governance manager
 func (m *Manager) Start() error {
-	log.Println("[Manager] Starting governance manager...")
+	logger.Info("Starting governance manager")
 
 	// Start event queue
 	go func() {
 		if err := m.eventQueue.Start(m.queueContext); err != nil {
-			log.Printf("[Manager] Event queue error: %v", err)
+			logger.Error("Event queue error", zap.Error(err))
 		}
 	}()
 
@@ -135,22 +136,23 @@ func (m *Manager) Start() error {
 
 	// Start HTTP server
 	go func() {
-		log.Printf("[Manager] HTTP server starting on port %d", m.config.ServerPort)
+		logger.Info("HTTP server starting", zap.Int("port", m.config.ServerPort))
 		if err := m.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("[Manager] HTTP server error: %v", err)
+			logger.Error("HTTP server error", zap.Error(err))
 		}
 	}()
 
-	log.Println("[Manager] Governance manager started successfully")
-	log.Printf("[Manager] Configuration: health_check_interval=%v, notification_interval=%v",
-		m.config.HealthCheckInterval, m.config.NotificationInterval)
+	logger.Info("Governance manager started successfully",
+		zap.Duration("health_check_interval", m.config.HealthCheckInterval),
+		zap.Duration("notification_interval", m.config.NotificationInterval),
+	)
 
 	return nil
 }
 
 // Stop gracefully stops the governance manager
 func (m *Manager) Stop() error {
-	log.Println("[Manager] Stopping governance manager...")
+	logger.Info("Stopping governance manager")
 
 	// Stop schedulers
 	m.healthCheckScheduler.Stop()
@@ -161,24 +163,25 @@ func (m *Manager) Stop() error {
 	defer cancel()
 
 	if err := m.httpServer.Shutdown(ctx); err != nil {
-		log.Printf("[Manager] HTTP server shutdown error: %v", err)
+		logger.Error("HTTP server shutdown error", zap.Error(err))
 	}
 
 	// Stop event queue
 	if err := m.eventQueue.Stop(); err != nil {
-		log.Printf("[Manager] Event queue stop error: %v", err)
+		logger.Error("Event queue stop error", zap.Error(err))
 	}
 	m.queueCancel()
 
 	// Close storage connection (database if enabled)
 	if err := m.dualStore.Close(); err != nil {
-		log.Printf("[Manager] Storage close error: %v", err)
+		logger.Error("Storage close error", zap.Error(err))
 	}
 
 	// Close stop channel
 	close(m.stopChan)
 
-	log.Println("[Manager] Governance manager stopped")
+	logger.Info("Governance manager stopped")
+	logger.Sync() // Flush any buffered logs
 	return nil
 }
 
